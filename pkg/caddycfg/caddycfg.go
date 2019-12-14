@@ -39,11 +39,23 @@ type JServer Server
 
 // Server is the backend config
 type Server struct {
-	Listen         []string       `json:"listen,omitempty"`
-	Routes         []Route        `json:"routes,omitempty"`
-	AutomaticHTTPS AutomaticHTTPS `json:"automatic_https,omitempty"`
+	Listen                []string              `json:"listen,omitempty"` //The array of listener addresses to bind to.
+	ReadTimeout           string                `json:"read_timeout,omitempty"`
+	ReadHeaderTimeout     string                `json:"read_header_timeout,omitempty"`
+	WriteTimeout          string                `json:"write_timeout,omitempty"`
+	IdleTimeout           string                `json:"idle_timeout,omitempty"`
+	MaxHeaderBytes        int64                 `json:"max_header_bytes,omitempty"`
+	Routes                []Route               `json:"routes,omitempty"`
+	Errors                Errors                `json:"errors,omitempty"`
+	TLSConnectionPolicies []TLSConnectionPolicy `json:"tls_connection_policies,omitempty"`
+	AutomaticHTTPS        AutomaticHTTPS        `json:"automatic_https,omitempty"`
+	MaxRehandles          int                   `json:"max_rehandles,omitempty"`
+	StrictSniHost         bool                  `json:"strict_sni_host,omitempty"`
+	ExperimentalHTTP3     bool                  `json:"experimental_http3,omitempty"`
 	sync.Mutex
 }
+
+// `json:",omitempty"`
 
 // AutomaticHTTPS Automatic HTTPS configuration
 type AutomaticHTTPS struct {
@@ -55,6 +67,12 @@ type Route struct {
 	Handle []Handle `json:"handle,omitempty"`
 	Match  []Match  `json:"match,omitempty"`
 }
+
+// Errors ...
+type Errors map[string]interface{}
+
+//TLSConnectionPolicy TLS connection policy
+type TLSConnectionPolicy map[string]string
 
 // Handle config
 type Handle struct {
@@ -71,6 +89,7 @@ type Upstream struct {
 // Match holds the hostname config
 type Match struct {
 	Host []string `json:"host,omitempty"`
+	Path []string `json:"path,omitempty"`
 }
 
 // New returns a caddy config
