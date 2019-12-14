@@ -1,6 +1,8 @@
 package caddycfg
 
 import (
+	"encoding/json"
+	"errors"
 	"reflect"
 	"sync"
 
@@ -31,6 +33,9 @@ type HTTP struct {
 
 // Servers ...
 type Servers map[string]Server
+
+// JServer used for marshaling
+type JServer Server
 
 // Server is the backend config
 type Server struct {
@@ -79,18 +84,20 @@ func New() Config {
 	}
 }
 
+var ErrRouteAlreadyExists = errors.New("route already exists")
+
 // AddRoute adds a route to the server
-func (s *Server) AddRoute(newRoute Route) {
+func (s *Server) AddRoute(newRoute Route) error {
 	s.Lock()
 	defer s.Unlock()
 	for _, r := range s.Routes {
 		if reflect.DeepEqual(r, newRoute) {
-			glog.Info("route already exists")
-			return
+			return ErrRouteAlreadyExists
 		}
 	}
 	glog.Infof("adding new route: %+v", newRoute)
 	s.Routes = append(s.Routes, newRoute)
+	return nil
 }
 
 // DeleteRoute removes a route from the tree
@@ -104,4 +111,12 @@ func (s *Server) DeleteRoute(oldRoute Route) {
 		}
 	}
 	glog.Error("route for deletion not found")
+}
+
+// ParseJSON ...
+func (s *Server) ParseJSON() ([]byte, error) {
+	s.Lock()
+	defer s.Unlock()
+	// This works because JObject doesn't have a MarshalJSON function associated with it
+	return json.Marshal(s)
 }

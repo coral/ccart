@@ -3,11 +3,14 @@ package controller
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
+	"time"
 
 	"github.com/golang/glog"
 	"github.com/roffe/ccart/pkg/caddycfg"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/api/networking/v1beta1"
 )
 
@@ -22,22 +25,47 @@ var (
 	}
 )
 
-func addIngress(ingress *v1beta1.Ingress) {
-
-	for _, rule := range ingress.Spec.Rules {
-
-		for _, p := range rule.IngressRuleValue.HTTP.Paths {
-			glog.Infof("%s:%d", p.Backend.ServiceName, p.Backend.ServicePort.IntValue())
+func (c *Controller) addIngress(ingress *v1beta1.Ingress) {
+	for {
+		if c.endpoints.GetController().HasSynced() {
+			break
 		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	for _, rule := range ingress.Spec.Rules {
+		upstreams := []caddycfg.Upstream{}
+		for _, p := range rule.IngressRuleValue.HTTP.Paths {
+			//glog.Infof("%s:%d", p.Backend.ServiceName, p.Backend.ServicePort.IntValue())
+			key := fmt.Sprintf("%s/%s", ingress.Namespace, p.Backend.ServiceName)
+			v, exists, err := c.endpoints.GetStore().GetByKey(key)
+			if err != nil {
+				glog.Error(err)
+				return
+			}
+			if exists {
+				endpoints, ok := v.(*v1.Endpoints)
+				if !ok {
+					glog.Error("typecast failed")
+				}
+				for _, subset := range endpoints.Subsets {
+					for _, ee := range subset.Addresses {
+						//glog.Info(ee.IP, subset.Ports[i].Port)
+						upstreams = append(upstreams, caddycfg.Upstream{
+							Dial: fmt.Sprintf("%s:%d", ee.IP, subset.Ports[0].Port),
+						})
+					}
+				}
+			} else {
+				glog.Errorf("key %q does not exist", key)
+				return
+			}
+		}
+
 		route := caddycfg.Route{
 			Handle: []caddycfg.Handle{
 				caddycfg.Handle{
-					Handler: caddycfg.ReverseProxy,
-					Upstreams: []caddycfg.Upstream{
-						caddycfg.Upstream{
-							Dial: "localhost:8080",
-						},
-					},
+					Handler:   caddycfg.ReverseProxy,
+					Upstreams: upstreams,
 				},
 			},
 			Match: []caddycfg.Match{
@@ -46,7 +74,15 @@ func addIngress(ingress *v1beta1.Ingress) {
 				},
 			},
 		}
-		srv.AddRoute(route)
+
+		if err := srv.AddRoute(route); err != nil {
+			if err == caddycfg.ErrRouteAlreadyExists {
+				glog.V(2).Info("route already up to date")
+				return
+			}
+			glog.Error(err)
+			return
+		}
 	}
 
 	updateServer("kubernetes-ingress")
@@ -78,7 +114,7 @@ func deleteIngress(ingress *v1beta1.Ingress) {
 }
 
 func updateServer(name string) {
-	jsonStr, err := json.Marshal(srv)
+	jsonStr, err := srv.ParseJSON()
 	if err != nil {
 		panic(err)
 	}
