@@ -25,6 +25,13 @@ const (
 
 var (
 	routes = map[string][]caddycfg.Route{}
+	srv    = caddycfg.Server{
+		AutomaticHTTPS: caddycfg.AutomaticHTTPS{
+			Disable: true,
+		},
+		Listen: []string{":80"},
+		Routes: []caddycfg.Route{},
+	}
 )
 
 // Controller holds our caddy ingress controller
@@ -89,7 +96,7 @@ func (c *Controller) Delete(obj interface{}) {
 	case *v1beta1.Ingress:
 		annotations := t.GetAnnotations()
 		if class, ok := annotations[IngressClassAnnotationKey]; ok && class == IngressClass {
-			deleteIngress(t)
+			c.deleteIngress(t)
 		}
 	default:
 		glog.Infof("%T", t)
@@ -211,4 +218,48 @@ func (c *Controller) getEndpoints(key string, targetPort intstr.IntOrString) ([]
 		}
 	}
 	return upstreams, nil
+}
+
+func (c *Controller) deleteIngress(ingress *v1beta1.Ingress) {
+	for _, ingressRule := range ingress.Spec.Rules {
+		for _, p := range ingressRule.HTTP.Paths {
+			endpointKey := fmt.Sprintf("%s/%s", ingress.Namespace, p.Backend.ServiceName)
+
+			svc, err := c.getService(endpointKey)
+			if err != nil {
+				panic(err)
+			}
+
+			var targetPort intstr.IntOrString
+
+			for _, port := range svc.Spec.Ports {
+				if port.Port == p.Backend.ServicePort.IntVal {
+					targetPort = port.TargetPort
+					break
+				}
+			}
+
+			upstreams, err := c.getEndpoints(endpointKey, targetPort)
+			if err != nil {
+				panic(err)
+			}
+			r := caddycfg.Route{}
+			r.Handle = []caddycfg.Handle{
+				caddycfg.Handle{
+					Handler:   caddycfg.ReverseProxy,
+					Upstreams: upstreams,
+				},
+			}
+			match := caddycfg.Match{
+				Host: []string{ingressRule.Host},
+			}
+			if p.Path != "" {
+				match.Path = []string{p.Path}
+			}
+			r.Match = []caddycfg.Match{match}
+			srv.DeleteRoute(r)
+		}
+	}
+
+	updateServer("kubernetes-ingress")
 }

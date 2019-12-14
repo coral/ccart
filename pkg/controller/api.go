@@ -8,44 +8,11 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/roffe/ccart/pkg/caddycfg"
-	"k8s.io/api/networking/v1beta1"
 )
 
 var (
 	caddyURL = "http://localhost:2019/config/"
-	srv      = caddycfg.Server{
-		AutomaticHTTPS: caddycfg.AutomaticHTTPS{
-			Disable: true,
-		},
-		Listen: []string{":80"},
-		Routes: []caddycfg.Route{},
-	}
 )
-
-func deleteIngress(ingress *v1beta1.Ingress) {
-	for _, rule := range ingress.Spec.Rules {
-		route := caddycfg.Route{
-			Handle: []caddycfg.Handle{
-				caddycfg.Handle{
-					Handler: caddycfg.ReverseProxy,
-					Upstreams: []caddycfg.Upstream{
-						caddycfg.Upstream{
-							Dial: "localhost:8080",
-						},
-					},
-				},
-			},
-			Match: []caddycfg.Match{
-				caddycfg.Match{
-					Host: []string{rule.Host},
-				},
-			},
-		}
-		srv.DeleteRoute(route)
-	}
-
-	updateServer("kubernetes-ingress")
-}
 
 func updateServer(name string) {
 	jsonStr, err := srv.ParseJSON()
